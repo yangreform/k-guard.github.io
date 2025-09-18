@@ -145,7 +145,7 @@ function levelClass(k){
 
     // 載入 Google Apps Script API 的資料
     async function loadFoodData() {
-      const url = "https://script.google.com/macros/s/XXXXXX/exec"; // 換成你的 GAS 網址
+      const url = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec"; // 換成你的 GAS 網址
       const res = await fetch(url);
       foods = await res.json();  // 存到全域變數
       renderSearchResults();     // 預設先渲染一次
