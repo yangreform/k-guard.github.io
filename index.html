@@ -133,21 +133,50 @@ function levelClass(k){
   if(colorBlindMode) return k<=100?'cb-low':k<=200?'cb-medium':'cb-high';
   return k<=100?'low':k<=200?'medium':'high';
 }
-function renderSearchResults(){
-  const q = searchInput.value.trim();
-  const results = q=='' ? foods : foods.filter(f=>f.name.includes(q)||f.alias.some(a=>a.includes(q)));
-  searchResultsEl.innerHTML='';
-  results.slice(0,5).forEach(f=>{
-    const div = document.createElement('div'); div.className='food-item';
-    div.innerHTML = `
-      <span>${f.name} (${f.k ?? '未知'} mg/100g)</span>
-      <span class="badge ${levelClass(f.k)}">
-        ${f.k==null?'未知':f.k<=100?'低鉀':f.k<=200?'中鉀':'高鉀'}
-      </span>`;
-    div.onclick = ()=>addRecord(f);
-    searchResultsEl.appendChild(div);
-  });
-}
+
+
+
+
+
+
+    let foods = [];
+    const searchInput = document.getElementById("searchInput");
+    const searchResultsEl = document.getElementById("searchResults");
+
+    // 載入 Google Apps Script API 的資料
+    async function loadFoodData() {
+      const url = "https://script.google.com/macros/s/XXXXXX/exec"; // 換成你的 GAS 網址
+      const res = await fetch(url);
+      foods = await res.json();  // 存到全域變數
+      renderSearchResults();     // 預設先渲染一次
+    }
+
+    // 渲染搜尋結果
+    function renderSearchResults() {
+      const q = searchInput.value.trim();
+      const results = q=='' ? foods : foods.filter(f =>
+        f.name.includes(q)
+      );
+      searchResultsEl.innerHTML = '';
+      results.slice(0, 5).forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'food-item';
+        div.innerHTML = `
+          <span>${f.name} (${f.k ?? '未知'} mg/100g)</span>
+          <span class="badge ${levelClass(f.k)}">
+            ${f.k==null?'未知':f.k<=100?'低鉀':f.k<=200?'中鉀':'高鉀'}
+          </span>`;
+        div.onclick = () => addRecord(f);
+        searchResultsEl.appendChild(div);
+      });
+    }
+  // 頁面載入時執行
+    loadFoodData();
+
+  
+
+
+  
 
 // --- 條碼模擬 ---
 function simulateScan(){
