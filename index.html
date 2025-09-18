@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>呷安全 (K+ Guard) 網頁版</title>
+<style>
+  body { font-family: sans-serif; margin:0; padding:0; background:#f8f8f8; }
+  header { background:#4caf50; color:white; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; }
+  main { padding:16px; max-width:800px; margin:auto; }
+  h2 { margin-top:24px; }
+  input[type=text], input[type=number], input[type=email] { width:100%; padding:8px; margin:4px 0; border:1px solid #ccc; border-radius:4px; }
+  button { padding:8px 12px; margin:4px; border:none; border-radius:4px; cursor:pointer; }
+  button.primary { background:#4caf50; color:white; }
+  button.danger { background:#f44336; color:white; }
+  .progress-container { background:#ddd; border-radius:12px; overflow:hidden; margin:4px 0; }
+  .progress-bar { height:16px; width:0%; background:#4caf50; }
+  .food-item { padding:8px; margin:4px 0; background:white; border-radius:6px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; }
+  .badge { padding:4px 8px; border-radius:12px; font-weight:bold; color:white; }
+  .low { background:#4caf50; }
+  .medium { background:#ff9800; }
+  .high { background:#f44336; }
+  .cb-low { background:#2196f3; }
+  .cb-medium { background:#795548; }
+  .cb-high { background:#000; }
+  .record { padding:6px; margin:4px 0; background:white; border-radius:6px; display:flex; justify-content:space-between; align-items:center; }
+  .flex { display:flex; gap:8px; align-items:center; }
+  img.preview { max-width:100%; border-radius:12px; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>呷安全 (K+ Guard)</div>
+  <div>
+    <label><input type="checkbox" id="colorBlind"> 色盲模式</label>
+  </div>
+</header>
+
+<main>
+  <!-- 今日進度 -->
+  <h2>今日累積鉀攝取</h2>
+  <div id="todayTotal">0 / 2000 mg</div>
+  <div class="progress-container">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <!-- 模擬辨識 / 條碼 -->
+  <h2>模擬辨識 / 條碼輸入</h2>
+  <div class="flex">
+    <input type="text" id="barcodeInput" placeholder="輸入條碼或名稱">
+    <button class="primary" onclick="simulateScan()">確認</button>
+  </div>
+  <input type="file" accept="image/*" id="imageInput">
+  <img id="preview" class="preview" src="" alt="">
+
+  <!-- 搜尋結果 -->
+  <h2>搜尋食物(有2000多種食物，只顯示前5筆)</h2>
+  <input type="text" id="searchInput" placeholder="輸入食物名稱或別名">
+  <div id="searchResults"></div>
+
+  <!-- Email 訂閱/查詢 -->
+  <h2>Email 查詢</h2>
+  <div class="flex">
+    <input type="email" id="emailInput" placeholder="輸入您的 Email">
+    <button class="primary" onclick="checkEmail()">查詢 Email</button>
+  </div>
+  <div id="emailStatus" style="margin-top: 8px;"></div>
+
+  <!-- 今日紀錄 -->
+  <h2>今日紀錄</h2>
+  <div id="records"></div>
+  <button class="danger" onclick="clearRecords()">清空今日紀錄</button>
+
+  <!-- 每日上限 -->
+  <h2>每日鉀攝取上限設定</h2>
+  <input type="number" id="dailyLimitInput" value="2000">
+  <button class="primary" onclick="saveDailyLimit()">儲存</button>
+</main>
+
+<script>
+// --- 從 Apps Script 傳進來的資料 ---
+const foods = JSON.parse(<?= foods ?>);
+
+// --- localStorage ---
+let records = JSON.parse(localStorage.getItem('kRecords')||'[]');
+let dailyLimit = parseFloat(localStorage.getItem('kDailyLimit')||'2000');
+let barcodeMap = JSON.parse(localStorage.getItem('kBarcodeMap')||'{}');
+let colorBlindMode = false;
+
+// --- DOM ---
+const todayTotalEl = document.getElementById('todayTotal');
+const progressBarEl = document.getElementById('progressBar');
+const searchInput = document.getElementById('searchInput');
+const searchResultsEl = document.getElementById('searchResults');
+const recordsEl = document.getElementById('records');
+const dailyLimitInput = document.getElementById('dailyLimitInput');
+const barcodeInput = document.getElementById('barcodeInput');
+const imageInput = document.getElementById('imageInput');
+const previewImg = document.getElementById('preview');
+const colorBlindCheck = document.getElementById('colorBlind');
+const emailInput = document.getElementById('emailInput');
+const emailStatusEl = document.getElementById('emailStatus');
+
+// --- 功能 ---
+function saveRecords(){ localStorage.setItem('kRecords', JSON.stringify(records)); }
+function saveDailyLimit(){ dailyLimit = parseFloat(dailyLimitInput.value)||2000; localStorage.setItem('kDailyLimit', dailyLimit); updateTodayTotal(); alert('每日上限已更新'); }
+function clearRecords(){ records=[]; saveRecords(); renderRecords(); updateTodayTotal(); }
+function addRecord(food, grams=100){
+  const k = food.k!=null ? food.k*grams/100 : null;
+  const now = new Date().toISOString();
+  records.push({id:food.id,name:food.name,grams,k,ts:now});
+  saveRecords(); renderRecords(); updateTodayTotal();
+  alert(`已加入今日紀錄：${food.name} ${grams}g`);
+}
+function updateTodayTotal(){
+  const total = records.reduce((s,r)=>s+(r.k||0),0);
+  todayTotalEl.textContent = `${Math.round(total)} / ${Math.round(dailyLimit)} mg`;
+  const ratio = Math.min(total/dailyLimit,1);
+  progressBarEl.style.width = (ratio*100)+'%';
+  progressBarEl.style.background = colorBlindMode ? '#2196f3' : (total>dailyLimit?'#f44336':'#4caf50');
+}
+function renderRecords(){
+  recordsEl.innerHTML='';
+  records.slice().reverse().forEach(r=>{
+    const el = document.createElement('div'); el.className='record';
+    el.innerHTML = `<div>${r.name} ${r.grams}g → ${Math.round(r.k||0)} mg</div><div>${r.ts.substr(11,5)}</div>`;
+    recordsEl.appendChild(el);
+  });
+}
+function levelClass(k){
+  if(k==null) return 'medium';
+  if(colorBlindMode) return k<=100?'cb-low':k<=200?'cb-medium':'cb-high';
+  return k<=100?'low':k<=200?'medium':'high';
+}
+function renderSearchResults(){
+  const q = searchInput.value.trim();
+  const results = q=='' ? foods : foods.filter(f=>f.name.includes(q)||f.alias.some(a=>a.includes(q)));
+  searchResultsEl.innerHTML='';
+  results.slice(0,5).forEach(f=>{
+    const div = document.createElement('div'); div.className='food-item';
+    div.innerHTML = `
+      <span>${f.name} (${f.k ?? '未知'} mg/100g)</span>
+      <span class="badge ${levelClass(f.k)}">
+        ${f.k==null?'未知':f.k<=100?'低鉀':f.k<=200?'中鉀':'高鉀'}
+      </span>`;
+    div.onclick = ()=>addRecord(f);
+    searchResultsEl.appendChild(div);
+  });
+}
+
+// --- 條碼模擬 ---
+function simulateScan(){
+  const code = barcodeInput.value.trim();
+  if(!code) return;
+  const mapped = barcodeMap[code];
+  let food = mapped ? foods.find(f=>f.id==mapped) : null;
+  if(!food){
+    const q = prompt('條碼未對映，請輸入食物名稱建立對應：');
+    food = foods.find(f=>f.name==q);
+    if(food){ barcodeMap[code]=food.id; localStorage.setItem('kBarcodeMap',JSON.stringify(barcodeMap)); }
+  }
+  if(food) addRecord(food);
+}
+
+// --- 圖片預覽 ---
+imageInput.addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(file){ previewImg.src = URL.createObjectURL(file); }
+});
+
+// --- Email 查詢 ---
+async function checkEmail(){
+  const email = emailInput.value.trim();
+  if(!email){ emailStatusEl.textContent='請輸入 Email。'; emailStatusEl.style.color='orange'; return; }
+  const SCRIPT_URL = 'https://script.google.com/macros/s/你的網址/exec';
+  emailStatusEl.textContent='正在查詢中...'; emailStatusEl.style.color='gray';
+  try{
+    const response = await fetch(SCRIPT_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({email})
+    });
+    const data = await response.json();
+    if(data.status==='success'){
+      if(data.exists){ emailStatusEl.textContent=`Email "${email}" 已存在於列表中。您可以開始記錄`; emailStatusEl.style.color='green'; }
+      else{ emailStatusEl.textContent=`Email "${email}" 尚未在列表中。已為您註冊完成`; emailStatusEl.style.color='red'; }
+    } else {
+      emailStatusEl.textContent=`查詢失敗: ${data.message||'未知錯誤'}`; emailStatusEl.style.color='red';
+    }
+  }catch(err){
+    emailStatusEl.textContent='網路或伺服器錯誤，請稍後再試。'; emailStatusEl.style.color='red';
+  }
+}
+
+// --- 事件 & 初始化 ---
+searchInput.addEventListener('input', renderSearchResults);
+colorBlindCheck.addEventListener('change', ()=>{ colorBlindMode=colorBlindCheck.checked; renderSearchResults(); updateTodayTotal(); });
+renderSearchResults(); renderRecords(); updateTodayTotal();
+dailyLimitInput.value=dailyLimit; colorBlindCheck.checked=colorBlindMode;
+</script>
+</body>
+</html>
