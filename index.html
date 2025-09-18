@@ -79,10 +79,8 @@
 </main>
 
 <script>
-// --- 從 Apps Script 傳進來的資料 ---
-const foods = JSON.parse(<?= foods ?>);
-
-// --- localStorage ---
+// --- 全域變數 ---
+let foods = [];
 let records = JSON.parse(localStorage.getItem('kRecords')||'[]');
 let dailyLimit = parseFloat(localStorage.getItem('kDailyLimit')||'2000');
 let barcodeMap = JSON.parse(localStorage.getItem('kBarcodeMap')||'{}');
@@ -102,7 +100,45 @@ const colorBlindCheck = document.getElementById('colorBlind');
 const emailInput = document.getElementById('emailInput');
 const emailStatusEl = document.getElementById('emailStatus');
 
-// --- 功能 ---
+// --- 從 Apps Script API 載入資料 ---
+async function loadFoodData() {
+  const url = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec"; // 換成你的 GAS 網址
+  try {
+    const res = await fetch(url);
+    foods = await res.json();
+    renderSearchResults();
+  } catch (err) {
+    console.error("載入 FoodData 失敗:", err);
+    searchResultsEl.innerHTML = "<div style='color:red'>無法載入食物資料</div>";
+  }
+}
+
+// --- 渲染搜尋結果 ---
+function renderSearchResults() {
+  const q = searchInput.value.trim();
+  const results = q=='' ? foods : foods.filter(f => f.name.includes(q));
+  searchResultsEl.innerHTML = '';
+  results.slice(0, 5).forEach(f => {
+    const div = document.createElement('div');
+    div.className = 'food-item';
+    div.innerHTML = `
+      <span>${f.name} (${f.k ?? '未知'} mg/100g)</span>
+      <span class="badge ${levelClass(f.k)}">
+        ${f.k==null?'未知':f.k<=100?'低鉀':f.k<=200?'中鉀':'高鉀'}
+      </span>`;
+    div.onclick = () => addRecord(f);
+    searchResultsEl.appendChild(div);
+  });
+}
+
+// --- 判斷鉀等級 ---
+function levelClass(k){
+  if(k==null) return 'medium';
+  if(colorBlindMode) return k<=100?'cb-low':k<=200?'cb-medium':'cb-high';
+  return k<=100?'low':k<=200?'medium':'high';
+}
+
+// --- 紀錄操作 ---
 function saveRecords(){ localStorage.setItem('kRecords', JSON.stringify(records)); }
 function saveDailyLimit(){ dailyLimit = parseFloat(dailyLimitInput.value)||2000; localStorage.setItem('kDailyLimit', dailyLimit); updateTodayTotal(); alert('每日上限已更新'); }
 function clearRecords(){ records=[]; saveRecords(); renderRecords(); updateTodayTotal(); }
@@ -128,55 +164,6 @@ function renderRecords(){
     recordsEl.appendChild(el);
   });
 }
-function levelClass(k){
-  if(k==null) return 'medium';
-  if(colorBlindMode) return k<=100?'cb-low':k<=200?'cb-medium':'cb-high';
-  return k<=100?'low':k<=200?'medium':'high';
-}
-
-
-
-
-
-
-    let foods = [];
-    const searchInput = document.getElementById("searchInput");
-    const searchResultsEl = document.getElementById("searchResults");
-
-    // 載入 Google Apps Script API 的資料
-    async function loadFoodData() {
-      const url = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec"; // 換成你的 GAS 網址
-      const res = await fetch(url);
-      foods = await res.json();  // 存到全域變數
-      renderSearchResults();     // 預設先渲染一次
-    }
-
-    // 渲染搜尋結果
-    function renderSearchResults() {
-      const q = searchInput.value.trim();
-      const results = q=='' ? foods : foods.filter(f =>
-        f.name.includes(q)
-      );
-      searchResultsEl.innerHTML = '';
-      results.slice(0, 5).forEach(f => {
-        const div = document.createElement('div');
-        div.className = 'food-item';
-        div.innerHTML = `
-          <span>${f.name} (${f.k ?? '未知'} mg/100g)</span>
-          <span class="badge ${levelClass(f.k)}">
-            ${f.k==null?'未知':f.k<=100?'低鉀':f.k<=200?'中鉀':'高鉀'}
-          </span>`;
-        div.onclick = () => addRecord(f);
-        searchResultsEl.appendChild(div);
-      });
-    }
-  // 頁面載入時執行
-    loadFoodData();
-
-  
-
-
-  
 
 // --- 條碼模擬 ---
 function simulateScan(){
@@ -225,7 +212,11 @@ async function checkEmail(){
 // --- 事件 & 初始化 ---
 searchInput.addEventListener('input', renderSearchResults);
 colorBlindCheck.addEventListener('change', ()=>{ colorBlindMode=colorBlindCheck.checked; renderSearchResults(); updateTodayTotal(); });
-renderSearchResults(); renderRecords(); updateTodayTotal();
+
+// 頁面載入初始化
+loadFoodData();
+renderRecords();
+updateTodayTotal();
 dailyLimitInput.value=dailyLimit; colorBlindCheck.checked=colorBlindMode;
 </script>
 </body>
