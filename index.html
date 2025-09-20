@@ -45,18 +45,20 @@
     <div class="progress-bar" id="progressBar"></div>
   </div>
 
-  <!-- 拍照上傳AI辨識 -->
-  <h2>拍照上傳AI辨識</h2>
+  <!-- 拍照上傳 -->
+  <h2>拍照上傳到 Google Drive</h2>
   <div class="flex">
-    <!-- 條碼輸入功能保留，但將「確認」按鈕用於圖片上傳 -->
     <input type="text" id="barcodeInput" placeholder="輸入條碼或名稱 (可選)">
-    <!-- 這個按鈕現在將觸發圖片上傳和AI辨識 -->
-    <button class="primary" onclick="uploadImage()">上傳並辨識</button>
+    <!-- 按鈕文字修改為「拍照並上傳」 -->
+    <button class="primary" onclick="uploadImage()">拍照並上傳</button>
   </div>
-  <input type="file" accept="image/*" id="imageInput">
+  <!-- 關鍵修改：添加 capture="environment" 屬性來開啟後置相機 -->
+  <!-- 註：在桌面瀏覽器上仍會是檔案選擇器，在行動裝置上會提示使用相機 -->
+  <input type="file" accept="image/*" id="imageInput" capture="environment">
   <img id="preview" class="preview" src="" alt="">
-  <!-- 顯示 AI 辨識結果的區域 -->
+  <!-- 顯示上傳結果的區域，沿用 aiResultEl -->
   <div id="aiResult" style="margin-top: 10px; font-weight: bold;"></div>
+  <!-- aiConfidenceEl 在此功能中暫不使用，但保留以防未來擴展 -->
   <div id="aiConfidence" style="font-size: 0.9em; color: gray;"></div>
 
 
@@ -95,8 +97,8 @@ const barcodeInput = document.getElementById('barcodeInput');
 const imageInput = document.getElementById('imageInput');
 const previewImg = document.getElementById('preview');
 const colorBlindCheck = document.getElementById('colorBlind');
-const aiResultEl = document.getElementById('aiResult'); // 新增：AI 辨識結果 DOM
-const aiConfidenceEl = document.getElementById('aiConfidence'); // 新增：AI 信心度 DOM
+const aiResultEl = document.getElementById('aiResult'); // 用於顯示上傳結果
+const aiConfidenceEl = document.getElementById('aiConfidence'); // 這裡暫不使用
 
 // --- 從 Apps Script API 載入資料 ---
 async function loadFoodData() {
@@ -169,15 +171,15 @@ imageInput.addEventListener('change', e=>{
   if(file){
     previewImg.src = URL.createObjectURL(file);
     previewImg.style.display = 'block'; // 顯示預覽圖
-    aiResultEl.textContent = ''; // 清空之前的辨識結果
-    aiConfidenceEl.textContent = ''; // 清空之前的信心度
+    aiResultEl.textContent = ''; // 清空之前的訊息
+    aiConfidenceEl.textContent = '';
   } else {
     previewImg.src = '';
     previewImg.style.display = 'none'; // 隱藏預覽圖
   }
 });
 
-// --- 上傳圖片並進行 AI 辨識 ---
+// --- 上傳圖片到 Google Drive ---
 async function uploadImage() {
   const file = imageInput.files[0];
   if (!file) {
@@ -185,15 +187,17 @@ async function uploadImage() {
     return;
   }
 
-  aiResultEl.textContent = '正在上傳並辨識中，請稍候...';
-  aiConfidenceEl.textContent = '';
+  aiResultEl.textContent = '正在上傳到 Google Drive...';
+  aiConfidenceEl.textContent = ''; // 清空信心度訊息
 
   const reader = new FileReader();
   reader.onloadend = async () => {
-    const base64Data = reader.result.split(',')[1]; // 取得 Base64 編碼的圖片資料
+    // 取得 Base64 編碼的圖片資料，並去除前綴 "data:image/jpeg;base64," 或 "data:image/png;base64,"
+    const base64Data = reader.result.split(',')[1];
+    const fileName = `upload_${new Date().getTime()}.${file.name.split('.').pop()}`; // 以時間戳和原始副檔名命名
 
-    // 替換成你的 Google Apps Script Web 應用程式 URL
-    const gasUrl = "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_FOR_IMAGE_UPLOAD"; // !!! 重要：請替換成你的 GAS 部署後的 URL !!!
+    // 替換成你的 Google Apps Script Web 應用程式 URL (用於上傳到 Drive)
+    const gasUrl = "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_FOR_GDRIVE_UPLOAD"; // !!! 重要：請替換成你的 GAS 部署後的 URL !!!
 
     try {
       const response = await fetch(gasUrl, {
@@ -202,32 +206,23 @@ async function uploadImage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ imageData: base64Data }),
+        body: JSON.stringify({ imageData: base64Data, fileName: fileName, mimeType: file.type }),
       });
 
       const result = await response.json();
 
       if (result.status === 'success') {
-        if (result.label && result.score) {
-          aiResultEl.textContent = `辨識結果：${result.label}`;
-          aiConfidenceEl.textContent = `信心度：${(result.score * 100).toFixed(2)}%`;
-
-          // 在搜尋框中自動填入辨識結果，方便使用者手動選擇
-          searchInput.value = result.label;
-          renderSearchResults();
-
-        } else {
-          aiResultEl.textContent = 'AI 未能辨識出食物種類。';
-          aiConfidenceEl.textContent = '';
-        }
+        aiResultEl.textContent = '上傳 GDRIVE 成功！';
+        aiResultEl.style.color = 'green';
+        console.log('檔案 ID:', result.fileId);
       } else {
-        aiResultEl.textContent = `AI 辨識失敗：${result.message || '未知錯誤'}`;
-        aiConfidenceEl.textContent = '';
+        aiResultEl.textContent = `上傳 GDRIVE 失敗：${result.message || '未知錯誤'}`;
+        aiResultEl.style.color = 'red';
         console.error('Apps Script 錯誤:', result.message);
       }
     } catch (error) {
-      aiResultEl.textContent = '上傳或辨識過程中發生錯誤。';
-      aiConfidenceEl.textContent = '';
+      aiResultEl.textContent = '上傳過程中發生錯誤。';
+      aiResultEl.style.color = 'red';
       console.error('上傳圖片錯誤:', error);
     }
   };
