@@ -197,7 +197,7 @@ async function uploadImage() {
     const fileName = `upload_${new Date().getTime()}.${file.name.split('.').pop()}`; // 以時間戳和原始副檔名命名
 
     // 替換成你的 Google Apps Script Web 應用程式 URL (用於上傳到 Drive)
-    const gasUrl = "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_FOR_GDRIVE_UPLOAD"; // !!! 重要：請替換成你的 GAS 部署後的 URL !!!
+    const gasUrl = "  const url = "AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug"; // !!! 重要：請替換成你的 GAS 部署後的 URL !!!
 
     try {
       const response = await fetch(gasUrl, {
