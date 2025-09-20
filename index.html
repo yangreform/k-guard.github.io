@@ -55,6 +55,7 @@
   <!-- 關鍵修改：添加 capture="environment" 屬性來開啟後置相機 -->
   <!-- 註：在桌面瀏覽器上仍會是檔案選擇器，在行動裝置上會提示使用相機 -->
   <input type="file" accept="image/*" id="imageInput" capture="environment">
+  
   <img id="preview" class="preview" src="" alt="">
   <!-- 顯示上傳結果的區域，沿用 aiResultEl -->
   <div id="aiResult" style="margin-top: 10px; font-weight: bold;"></div>
@@ -192,17 +193,16 @@ async function uploadImage() {
 
   const reader = new FileReader();
   reader.onloadend = async () => {
-    // 取得 Base64 編碼的圖片資料，並去除前綴 "data:image/jpeg;base64," 或 "data:image/png;base64,"
     const base64Data = reader.result.split(',')[1];
-    const fileName = `upload_${new Date().getTime()}.${file.name.split('.').pop()}`; // 以時間戳和原始副檔名命名
+    const fileName = `upload_${new Date().getTime()}.${file.name.split('.').pop()}`;
 
-    // 替換成你的 Google Apps Script Web 應用程式 URL (用於上傳到 Drive)
-    const gasUrl = "  const url = "AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug"; // !!! 重要：請替換成你的 GAS 部署後的 URL !!!
+    // ✅ 正確的 Apps Script 網址
+    const gasUrl = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec";
 
     try {
       const response = await fetch(gasUrl, {
         method: 'POST',
-        mode: 'cors', // 允許跨域請求
+        mode: 'cors',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -228,7 +228,6 @@ async function uploadImage() {
   };
   reader.readAsDataURL(file);
 }
-
 
 // --- 事件 & 初始化 ---
 searchInput.addEventListener('input', renderSearchResults);
