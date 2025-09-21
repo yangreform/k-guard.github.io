@@ -45,27 +45,25 @@
     <div class="progress-bar" id="progressBar"></div>
   </div>
 
-  <!-- 模擬辨識 / 條碼 -->
-  <h2>模擬辨識 / 條碼輸入</h2>
+  <!-- 拍照上傳AI辨識 -->
+  <h2>拍照上傳AI辨識</h2>
   <div class="flex">
-    <input type="text" id="barcodeInput" placeholder="輸入條碼或名稱">
-    <button class="primary" onclick="simulateScan()">確認</button>
+    <!-- 條碼輸入功能保留，但將「確認」按鈕用於圖片上傳 -->
+    <input type="text" id="barcodeInput" placeholder="輸入條碼或名稱 (可選)">
+    <!-- 這個按鈕現在將觸發圖片上傳和AI辨識 -->
+    <button class="primary" onclick="uploadImage()">上傳並辨識</button>
   </div>
   <input type="file" accept="image/*" id="imageInput">
   <img id="preview" class="preview" src="" alt="">
+  <!-- 顯示 AI 辨識結果的區域 -->
+  <div id="aiResult" style="margin-top: 10px; font-weight: bold;"></div>
+  <div id="aiConfidence" style="font-size: 0.9em; color: gray;"></div>
+
 
   <!-- 搜尋結果 -->
   <h2>搜尋食物(有2000多種食物，只顯示前5筆)</h2>
   <input type="text" id="searchInput" placeholder="輸入食物名稱或別名">
   <div id="searchResults"></div>
-
-  <!-- Email 訂閱/查詢 -->
-  <h2>Email 查詢</h2>
-  <div class="flex">
-    <input type="email" id="emailInput" placeholder="輸入您的 Email">
-    <button class="primary" onclick="checkEmail()">查詢 Email</button>
-  </div>
-  <div id="emailStatus" style="margin-top: 8px;"></div>
 
   <!-- 今日紀錄 -->
   <h2>今日紀錄</h2>
@@ -97,12 +95,12 @@ const barcodeInput = document.getElementById('barcodeInput');
 const imageInput = document.getElementById('imageInput');
 const previewImg = document.getElementById('preview');
 const colorBlindCheck = document.getElementById('colorBlind');
-const emailInput = document.getElementById('emailInput');
-const emailStatusEl = document.getElementById('emailStatus');
+const aiResultEl = document.getElementById('aiResult'); // 新增：AI 辨識結果 DOM
+const aiConfidenceEl = document.getElementById('aiConfidence'); // 新增：AI 信心度 DOM
 
 // --- 從 Apps Script API 載入資料 ---
 async function loadFoodData() {
-  const url = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec"; // 換成你的 GAS 網址
+  const url = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec"; // 換成你的 GAS 網址 (食物資料 API)
   try {
     const res = await fetch(url);
     foods = await res.json();
@@ -165,49 +163,77 @@ function renderRecords(){
   });
 }
 
-// --- 條碼模擬 ---
-function simulateScan(){
-  const code = barcodeInput.value.trim();
-  if(!code) return;
-  const mapped = barcodeMap[code];
-  let food = mapped ? foods.find(f=>f.id==mapped) : null;
-  if(!food){
-    const q = prompt('條碼未對映，請輸入食物名稱建立對應：');
-    food = foods.find(f=>f.name==q);
-    if(food){ barcodeMap[code]=food.id; localStorage.setItem('kBarcodeMap',JSON.stringify(barcodeMap)); }
-  }
-  if(food) addRecord(food);
-}
-
 // --- 圖片預覽 ---
 imageInput.addEventListener('change', e=>{
   const file = e.target.files[0];
-  if(file){ previewImg.src = URL.createObjectURL(file); }
+  if(file){
+    previewImg.src = URL.createObjectURL(file);
+    previewImg.style.display = 'block'; // 顯示預覽圖
+    aiResultEl.textContent = ''; // 清空之前的辨識結果
+    aiConfidenceEl.textContent = ''; // 清空之前的信心度
+  } else {
+    previewImg.src = '';
+    previewImg.style.display = 'none'; // 隱藏預覽圖
+  }
 });
 
-// --- Email 查詢 ---
-async function checkEmail(){
-  const email = emailInput.value.trim();
-  if(!email){ emailStatusEl.textContent='請輸入 Email。'; emailStatusEl.style.color='orange'; return; }
-  const SCRIPT_URL = 'https://script.google.com/macros/s/你的網址/exec';
-  emailStatusEl.textContent='正在查詢中...'; emailStatusEl.style.color='gray';
-  try{
-    const response = await fetch(SCRIPT_URL,{
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded'},
-      body:new URLSearchParams({email})
-    });
-    const data = await response.json();
-    if(data.status==='success'){
-      if(data.exists){ emailStatusEl.textContent=`Email "${email}" 已存在於列表中。您可以開始記錄`; emailStatusEl.style.color='green'; }
-      else{ emailStatusEl.textContent=`Email "${email}" 尚未在列表中。已為您註冊完成`; emailStatusEl.style.color='red'; }
-    } else {
-      emailStatusEl.textContent=`查詢失敗: ${data.message||'未知錯誤'}`; emailStatusEl.style.color='red';
-    }
-  }catch(err){
-    emailStatusEl.textContent='網路或伺服器錯誤，請稍後再試。'; emailStatusEl.style.color='red';
+// --- 上傳圖片並進行 AI 辨識 ---
+async function uploadImage() {
+  const file = imageInput.files[0];
+  if (!file) {
+    alert('請先選擇一張圖片！');
+    return;
   }
+
+  aiResultEl.textContent = '正在上傳並辨識中，請稍候...';
+  aiConfidenceEl.textContent = '';
+
+  const reader = new FileReader();
+  reader.onloadend = async () => {
+    const base64Data = reader.result.split(',')[1]; // 取得 Base64 編碼的圖片資料
+
+    // 替換成你的 Google Apps Script Web 應用程式 URL
+    const gasUrl = "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_FOR_IMAGE_UPLOAD"; // !!! 重要：請替換成你的 GAS 部署後的 URL !!!
+
+    try {
+      const response = await fetch(gasUrl, {
+        method: 'POST',
+        mode: 'cors', // 允許跨域請求
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ imageData: base64Data }),
+      });
+
+      const result = await response.json();
+
+      if (result.status === 'success') {
+        if (result.label && result.score) {
+          aiResultEl.textContent = `辨識結果：${result.label}`;
+          aiConfidenceEl.textContent = `信心度：${(result.score * 100).toFixed(2)}%`;
+
+          // 在搜尋框中自動填入辨識結果，方便使用者手動選擇
+          searchInput.value = result.label;
+          renderSearchResults();
+
+        } else {
+          aiResultEl.textContent = 'AI 未能辨識出食物種類。';
+          aiConfidenceEl.textContent = '';
+        }
+      } else {
+        aiResultEl.textContent = `AI 辨識失敗：${result.message || '未知錯誤'}`;
+        aiConfidenceEl.textContent = '';
+        console.error('Apps Script 錯誤:', result.message);
+      }
+    } catch (error) {
+      aiResultEl.textContent = '上傳或辨識過程中發生錯誤。';
+      aiConfidenceEl.textContent = '';
+      console.error('上傳圖片錯誤:', error);
+    }
+  };
+  reader.readAsDataURL(file);
 }
+
 
 // --- 事件 & 初始化 ---
 searchInput.addEventListener('input', renderSearchResults);
@@ -218,6 +244,9 @@ loadFoodData();
 renderRecords();
 updateTodayTotal();
 dailyLimitInput.value=dailyLimit; colorBlindCheck.checked=colorBlindMode;
+
+// 初始隱藏預覽圖
+previewImg.style.display = 'none';
 </script>
 </body>
 </html>
