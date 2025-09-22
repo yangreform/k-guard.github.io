@@ -46,20 +46,16 @@
   </div>
 
   <!-- 拍照上傳 -->
-  <h2>拍照上傳到 Google Drive</h2>
+  <h2>拍照上傳與 AI 辨識</h2>
   <div class="flex">
     <input type="text" id="barcodeInput" placeholder="輸入條碼或名稱 (可選)">
-    <!-- 按鈕文字修改為「拍照並上傳」 -->
-    <button class="primary" onclick="uploadImage()">拍照並上傳</button>
+    <button class="primary" onclick="uploadAndAnalyzeImage()">拍照並上傳分析</button>
   </div>
-  <!-- 關鍵修改：添加 capture="environment" 屬性來開啟後置相機 -->
-  <!-- 註：在桌面瀏覽器上仍會是檔案選擇器，在行動裝置上會提示使用相機 -->
   <input type="file" accept="image/*" id="imageInput" capture="environment">
   
   <img id="preview" class="preview" src="" alt="">
-  <!-- 顯示上傳結果的區域，沿用 aiResultEl -->
+  <!-- 顯示上傳結果的區域 -->
   <div id="aiResult" style="margin-top: 10px; font-weight: bold;"></div>
-  <!-- aiConfidenceEl 在此功能中暫不使用，但保留以防未來擴展 -->
   <div id="aiConfidence" style="font-size: 0.9em; color: gray;"></div>
 
 
@@ -98,14 +94,19 @@ const barcodeInput = document.getElementById('barcodeInput');
 const imageInput = document.getElementById('imageInput');
 const previewImg = document.getElementById('preview');
 const colorBlindCheck = document.getElementById('colorBlind');
-const aiResultEl = document.getElementById('aiResult'); // 用於顯示上傳結果
-const aiConfidenceEl = document.getElementById('aiConfidence'); // 這裡暫不使用
+const aiResultEl = document.getElementById('aiResult');
+const aiConfidenceEl = document.getElementById('aiConfidence');
+
+// *** 請將這裡的 URL 替換為你在 Google Apps Script 部署後得到的網路應用程式 URL！ ***
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec"; 
+// 食物資料 API URL，現在指向同一個 GAS 部署，但會呼叫 doGet
+const FOOD_DATA_API_URL = GAS_WEB_APP_URL; 
+
 
 // --- 從 Apps Script API 載入資料 ---
 async function loadFoodData() {
-  const url = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec"; // 換成你的 GAS 網址 (食物資料 API)
   try {
-    const res = await fetch(url);
+    const res = await fetch(FOOD_DATA_API_URL); // 現在會觸發 GAS 的 doGet
     foods = await res.json();
     renderSearchResults();
   } catch (err) {
@@ -116,8 +117,11 @@ async function loadFoodData() {
 
 // --- 渲染搜尋結果 ---
 function renderSearchResults() {
-  const q = searchInput.value.trim();
-  const results = q=='' ? foods : foods.filter(f => f.name.includes(q));
+  const q = searchInput.value.trim().toLowerCase();
+  const results = q=='' ? foods : foods.filter(f => 
+    f.name.toLowerCase().includes(q) || 
+    (f.alias && f.alias.some(a => a.toLowerCase().includes(q)))
+  );
   searchResultsEl.innerHTML = '';
   results.slice(0, 5).forEach(f => {
     const div = document.createElement('div');
@@ -134,7 +138,7 @@ function renderSearchResults() {
 
 // --- 判斷鉀等級 ---
 function levelClass(k){
-  if(k==null) return 'medium';
+  if(k==null) return 'medium'; // 預設未知為中鉀
   if(colorBlindMode) return k<=100?'cb-low':k<=200?'cb-medium':'cb-high';
   return k<=100?'low':k<=200?'medium':'high';
 }
@@ -151,7 +155,10 @@ function addRecord(food, grams=100){
   alert(`已加入今日紀錄：${food.name} ${grams}g`);
 }
 function updateTodayTotal(){
-  const total = records.reduce((s,r)=>s+(r.k||0),0);
+  const today = new Date().toISOString().split('T')[0]; // 獲取今天的日期部分
+  const todayRecords = records.filter(r => r.ts.startsWith(today)); // 過濾出今天的紀錄
+  const total = todayRecords.reduce((s,r)=>s+(r.k||0),0);
+
   todayTotalEl.textContent = `${Math.round(total)} / ${Math.round(dailyLimit)} mg`;
   const ratio = Math.min(total/dailyLimit,1);
   progressBarEl.style.width = (ratio*100)+'%';
@@ -159,71 +166,104 @@ function updateTodayTotal(){
 }
 function renderRecords(){
   recordsEl.innerHTML='';
-  records.slice().reverse().forEach(r=>{
+  const today = new Date().toISOString().split('T')[0];
+  const todayRecords = records.filter(r => r.ts.startsWith(today));
+  todayRecords.slice().reverse().forEach(r=>{
     const el = document.createElement('div'); el.className='record';
     el.innerHTML = `<div>${r.name} ${r.grams}g → ${Math.round(r.k||0)} mg</div><div>${r.ts.substr(11,5)}</div>`;
     recordsEl.appendChild(el);
   });
 }
 
-// --- 圖片預覽 ---
-imageInput.addEventListener('change', e=>{
-  const file = e.target.files[0];
-  if(file){
-    previewImg.src = URL.createObjectURL(file);
-    previewImg.style.display = 'block'; // 顯示預覽圖
-    aiResultEl.textContent = ''; // 清空之前的訊息
-    aiConfidenceEl.textContent = '';
-  } else {
-    previewImg.src = '';
-    previewImg.style.display = 'none'; // 隱藏預覽圖
-  }
-});
 
-// --- 上傳圖片到 Google Drive ---
-async function uploadImage() {
+/**
+ * 上傳圖片到 Google Drive 並使用 Gemini 進行圖片分析
+ */
+async function uploadAndAnalyzeImage() {
   const file = imageInput.files[0];
   if (!file) {
     alert('請先選擇一張圖片！');
     return;
   }
 
-  aiResultEl.textContent = '正在上傳到 Google Drive...';
-  aiConfidenceEl.textContent = ''; // 清空信心度訊息
+  aiResultEl.textContent = '正在處理圖片，請稍候...';
+  aiResultEl.style.color = 'gray';
+  aiConfidenceEl.textContent = '';
 
   const reader = new FileReader();
   reader.onloadend = async () => {
-    const base64Data = reader.result.split(',')[1];
+    // 獲取 Base64 資料，並移除前綴 "data:image/jpeg;base64,"
+    const base64Data = reader.result.split(',')[1]; 
     const fileName = `upload_${new Date().getTime()}.${file.name.split('.').pop()}`;
-
-    // ✅ 正確的 Apps Script 網址
-    const gasUrl = "https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec";
+    const userPrompt = "請告訴我這張圖中有什麼食物或水果？如果可以，請列出常見的食物名稱，並只回答食物名稱，不要有其他描述。"; 
 
     try {
-      const response = await fetch(gasUrl, {
+      // 步驟 1: 上傳圖片到 Google Drive (可選)
+      // 這一步驟可以選擇性地移除，如果只是想用 Gemini 進行分析而不儲存圖片。
+      aiResultEl.textContent = '正在上傳圖片到 Google Drive...';
+      const uploadResponse = await fetch(GAS_WEB_APP_URL, {
         method: 'POST',
         mode: 'cors',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ imageData: base64Data, fileName: fileName, mimeType: file.type }),
+        body: JSON.stringify({ 
+          action: 'uploadImage', 
+          imageData: base64Data, 
+          fileName: fileName, 
+          mimeType: file.type 
+        }),
       });
 
-      const result = await response.json();
+      const uploadResult = await uploadResponse.json();
 
-      if (result.status === 'success') {
-        aiResultEl.textContent = '上傳 GDRIVE 成功！';
+      if (uploadResult.status === 'success') {
+        console.log('檔案 ID:', uploadResult.fileId);
+        aiResultEl.textContent = '圖片已上傳到 Google Drive。正在進行 AI 分析...';
         aiResultEl.style.color = 'green';
-        console.log('檔案 ID:', result.fileId);
+
+        // 步驟 2: 調用 Gemini 進行圖片分析
+        const analyzeResponse = await fetch(GAS_WEB_APP_URL, {
+          method: 'POST',
+          mode: 'cors',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            action: 'analyzeImage', 
+            imageData: base64Data, 
+            prompt: userPrompt 
+          }),
+        });
+
+        const analyzeResult = await analyzeResponse.json();
+
+        if (analyzeResult.status === 'success') {
+          aiResultEl.textContent = `AI 分析結果: ${analyzeResult.result}`;
+          aiResultEl.style.color = 'blue';
+          console.log('AI 分析結果:', analyzeResult.result);
+
+          // 嘗試根據 AI 辨識結果自動搜尋食物
+          if (analyzeResult.result) {
+            searchInput.value = analyzeResult.result;
+            renderSearchResults();
+          }
+
+        } else {
+          aiResultEl.textContent = `AI 分析失敗：${analyzeResult.message || '未知錯誤'}`;
+          aiResultEl.style.color = 'red';
+          console.error('Gemini 分析錯誤:', analyzeResult.message);
+        }
+
       } else {
-        aiResultEl.textContent = `上傳 GDRIVE 失敗：${result.message || '未知錯誤'}`;
+        aiResultEl.textContent = `上傳 GDRIVE 失敗：${uploadResult.message || '未知錯誤'}`;
         aiResultEl.style.color = 'red';
-        console.error('Apps Script 錯誤:', result.message);
+        console.error('Apps Script 上傳錯誤:', uploadResult.message);
       }
     } catch (error) {
-      aiResultEl.textContent = '上傳過程中發生錯誤。';
+      aiResultEl.textContent = '處理過程中發生錯誤。';
       aiResultEl.style.color = 'red';
-      console.error('上傳圖片錯誤:', error);
+      console.error('圖片處理錯誤:', error);
     }
   };
   reader.readAsDataURL(file);
@@ -231,13 +271,26 @@ async function uploadImage() {
 
 // --- 事件 & 初始化 ---
 searchInput.addEventListener('input', renderSearchResults);
-colorBlindCheck.addEventListener('change', ()=>{ colorBlindMode=colorBlindCheck.checked; renderSearchResults(); updateTodayTotal(); });
+colorBlindCheck.addEventListener('change', ()=>{ 
+  colorBlindMode=colorBlindCheck.checked; 
+  localStorage.setItem('kColorBlindMode', colorBlindMode); // 保存色盲模式設定
+  renderSearchResults(); 
+  updateTodayTotal(); 
+});
 
 // 頁面載入初始化
 loadFoodData();
 renderRecords();
 updateTodayTotal();
-dailyLimitInput.value=dailyLimit; colorBlindCheck.checked=colorBlindMode;
+dailyLimitInput.value=dailyLimit; 
+
+// 從 localStorage 載入色盲模式設定
+const storedColorBlindMode = localStorage.getItem('kColorBlindMode');
+if (storedColorBlindMode !== null) {
+  colorBlindMode = JSON.parse(storedColorBlindMode);
+  colorBlindCheck.checked = colorBlindMode;
+}
+
 
 // 初始隱藏預覽圖
 previewImg.style.display = 'none';
