@@ -102,11 +102,10 @@ const GAS_WEB_APP_URL = "https://billowing-rain-a2b1.jacky-39e.workers.dev/";
 // 食物資料 API URL，現在指向同一個 GAS 部署，但會呼叫 doGet
 const FOOD_DATA_API_URL = GAS_WEB_APP_URL; 
 
-
 // --- 從 Apps Script API 載入資料 ---
 async function loadFoodData() {
   try {
-    const res = await fetch(FOOD_DATA_API_URL); // 現在會觸發 GAS 的 doGet
+    const res = await fetch("https://script.google.com/macros/s/AKfycbyhZIW1GL-y1-0SQFcj8XZ8YPsW2LAIsccc-_KXkKzYWc8QIvZlCBeoVW_B8ZoGCrcwug/exec");
     foods = await res.json();
     renderSearchResults();
   } catch (err) {
@@ -114,7 +113,7 @@ async function loadFoodData() {
     searchResultsEl.innerHTML = "<div style='color:red'>無法載入食物資料</div>";
   }
 }
-
+  
 // --- 渲染搜尋結果 ---
 function renderSearchResults() {
   const q = searchInput.value.trim().toLowerCase();
