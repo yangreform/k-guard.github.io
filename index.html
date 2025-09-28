@@ -60,7 +60,7 @@
 
 
   <!-- 搜尋結果 -->
-  <h2>搜尋食物(有2000多種食物，只顯示前5筆)</h2>
+  <h2>搜尋食物(有2000多種食物，只顯示前10筆)</h2>
   <input type="text" id="searchInput" placeholder="輸入食物名稱或別名">
   <div id="searchResults"></div>
 
@@ -122,7 +122,7 @@ function renderSearchResults() {
     (f.alias && f.alias.some(a => a.toLowerCase().includes(q)))
   );
   searchResultsEl.innerHTML = '';
-  results.slice(0, 5).forEach(f => {
+  results.slice(0, 10).forEach(f => {
     const div = document.createElement('div');
     div.className = 'food-item';
     div.innerHTML = `
